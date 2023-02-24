@@ -104,6 +104,8 @@ fn main() -> std::io::Result<()> {
     println!("{}", header);
     assert_eq!(header.magic, MAGIC);
 
+    fs::create_dir_all("output")?;
+
     // Offset until now: 24 bytes
     let mut offset = header.first_entry_offset as usize;
     while offset < contents.len() {
@@ -130,9 +132,10 @@ fn main() -> std::io::Result<()> {
         let data_start = offset + CACHE_ENTRY_SIZE + entry.filename_length as usize + entry.padding_size as usize;
         let data_end = data_start + entry.data_size as usize;
         assert!(data_end <= contents.len());
-        // let data = &contents[data_start..data_end];
-        // println!("Data: {:x?}", data);
-        // fs::write("sample.jpg", data).expect("Unable to write file");
+        let data = &contents[data_start..data_end];
+
+        let path = format!("output/{}.jpg", { entry.hash });
+        fs::write(path, data).expect("Unable to write file");
 
         offset += entry.entry_size as usize;
     }
