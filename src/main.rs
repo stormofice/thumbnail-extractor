@@ -3,8 +3,8 @@ mod file_identification;
 use std::fmt::{Display, Formatter};
 use std::fs;
 use std::mem::transmute;
-use std::ops::Deref;
-use crate::file_identification::{determine_file_type, FileIdentification};
+use std::path::Path;
+use crate::file_identification::{determine_file_type};
 
 const MAGIC: [u8; 4] = [0x43, 0x4D, 0x4D, 0x4D];
 
@@ -92,6 +92,8 @@ impl TryFrom<u32> for CacheType {
     }
 }
 
+const DATA_OUTPUT_DIRECTORY: &str = "output";
+
 fn main() -> std::io::Result<()> {
     let contents = fs::read("./thumbcache_1280.db")?;
 
@@ -99,19 +101,19 @@ fn main() -> std::io::Result<()> {
     println!("Database header size: {}", DATABASE_HEADER_SIZE);
     println!("Cache entry size: {}", CACHE_ENTRY_SIZE);
 
-    let header = unsafe {
+    let database_header = unsafe {
         transmute::<[u8; DATABASE_HEADER_SIZE],
             DatabaseHeader>(contents[0..DATABASE_HEADER_SIZE]
             .try_into().expect("Invalid cache entry"))
     };
 
-    println!("{}", header);
-    assert_eq!(header.magic, MAGIC);
+    println!("{}", database_header);
+    assert_eq!(database_header.magic, MAGIC);
 
-    fs::create_dir_all("output")?;
+    fs::create_dir_all(DATA_OUTPUT_DIRECTORY)?;
 
-    let mut offset = header.first_entry_offset as usize;
-    while offset < contents.len() {
+    let mut offset = database_header.first_entry_offset as usize;
+    while offset < contents.len() && offset != database_header.available_entry_offset as usize {
         println!("Entry at offset {}", offset);
 
         let entry = unsafe {
@@ -121,35 +123,38 @@ fn main() -> std::io::Result<()> {
         };
 
 
-        // println!("{}", entry);
+        println!("{}", entry);
         assert_eq!(entry.magic, MAGIC);
 
-        let (_, filename, _) = unsafe {
+        let (_, raw_filename, _) = unsafe {
             contents[(offset + CACHE_ENTRY_SIZE)..
                 (offset + CACHE_ENTRY_SIZE + entry.filename_length as usize)]
                 .align_to::<u16>()
         };
 
-        // println!("Filename: {:?}", String::from_utf16_lossy(filename));
+
+        let mut filename = String::from_utf16_lossy(raw_filename);
+        if filename.len() == 0 {
+            assert!(false, "Should not happen in an uncorrupted thumbnail cache");
+            filename = format!("{:x}", { entry.hash });
+        }
 
         let data_start = offset + CACHE_ENTRY_SIZE + entry.filename_length as usize + entry.padding_size as usize;
         let data_end = data_start + entry.data_size as usize;
         assert!(data_end <= contents.len());
         let data = &contents[data_start..data_end];
 
-        if data.len() == 0 {
-            println!("Finished?");
-            break;
-        }
-
         let ident = determine_file_type(data);
         match ident {
             None => eprintln!("Could not determine file type {:?}", &data[0..16]),
-            Some(file_identification) => println!("File type is {:?}", file_identification.file_type),
+            Some(file_identification) => {
+                let filename = format!("{}.{}", filename, file_identification.file_extension);
+                let file_path = Path::new(DATA_OUTPUT_DIRECTORY)
+                    .join(filename);
+                println!("{:?}", file_path);
+                fs::write(file_path, data)?;
+            }
         }
-
-        // let path = format!("output/{}.jpg", { entry.hash });
-        // fs::write(path, data).expect("Unable to write file");
 
         offset += entry.entry_size as usize;
     }

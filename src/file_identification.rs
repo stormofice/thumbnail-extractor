@@ -8,7 +8,7 @@ pub enum FileType {
 
 pub struct FileIdentification {
     pub(crate) file_type: FileType,
-    file_extension: &'static str,
+    pub(crate) file_extension: &'static str,
     file_header: &'static [u8],
 }
 
