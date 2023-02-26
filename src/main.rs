@@ -1,6 +1,10 @@
+mod file_identification;
+
 use std::fmt::{Display, Formatter};
 use std::fs;
 use std::mem::transmute;
+use std::ops::Deref;
+use crate::file_identification::{determine_file_type, FileIdentification};
 
 const MAGIC: [u8; 4] = [0x43, 0x4D, 0x4D, 0x4D];
 
@@ -106,7 +110,6 @@ fn main() -> std::io::Result<()> {
 
     fs::create_dir_all("output")?;
 
-    // Offset until now: 24 bytes
     let mut offset = header.first_entry_offset as usize;
     while offset < contents.len() {
         println!("Entry at offset {}", offset);
@@ -118,7 +121,7 @@ fn main() -> std::io::Result<()> {
         };
 
 
-        println!("{}", entry);
+        // println!("{}", entry);
         assert_eq!(entry.magic, MAGIC);
 
         let (_, filename, _) = unsafe {
@@ -127,15 +130,26 @@ fn main() -> std::io::Result<()> {
                 .align_to::<u16>()
         };
 
-        println!("Filename: {:?}", String::from_utf16_lossy(filename));
+        // println!("Filename: {:?}", String::from_utf16_lossy(filename));
 
         let data_start = offset + CACHE_ENTRY_SIZE + entry.filename_length as usize + entry.padding_size as usize;
         let data_end = data_start + entry.data_size as usize;
         assert!(data_end <= contents.len());
         let data = &contents[data_start..data_end];
 
-        let path = format!("output/{}.jpg", { entry.hash });
-        fs::write(path, data).expect("Unable to write file");
+        if data.len() == 0 {
+            println!("Finished?");
+            break;
+        }
+
+        let ident = determine_file_type(data);
+        match ident {
+            None => eprintln!("Could not determine file type {:?}", &data[0..16]),
+            Some(file_identification) => println!("File type is {:?}", file_identification.file_type),
+        }
+
+        // let path = format!("output/{}.jpg", { entry.hash });
+        // fs::write(path, data).expect("Unable to write file");
 
         offset += entry.entry_size as usize;
     }
